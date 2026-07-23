@@ -1,0 +1,74 @@
+{
+  "name": "recaptcha-react",
+  "version": "1.0.0",
+  "description": "Lightweight React reCAPTCHA v2 checkbox component with TypeScript, Vite library build, and controlled-value support",
+  "author": "Souhail Makni <maknisouhail@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Souhailmakni/recaptcha-react.git"
+  },
+  "homepage": "https://github.com/Souhailmakni/recaptcha-react#readme",
+  "bugs": {
+    "url": "https://github.com/Souhailmakni/recaptcha-react/issues"
+  },
+  "keywords": [
+    "react",
+    "recaptcha",
+    "recaptcha-v2",
+    "checkbox",
+    "google-recaptcha",
+    "hook",
+    "vite",
+    "typescript"
+  ],
+  "type": "module",
+  "main": "./dist/recaptcha-react.umd.cjs",
+  "module": "./dist/recaptcha-react.js",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/recaptcha-react.js",
+      "require": "./dist/recaptcha-react.umd.cjs"
+    }
+  },
+  "types": "./dist/src/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "audit": "yarn audit --groups dependencies",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "react-dom": ">=17.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "6.6.3",
+    "@testing-library/react": "16.1.0",
+    "@types/node": "25.5.0",
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
+    "@vitejs/plugin-react": "6.0.4",
+    "@vitest/coverage-v8": "4.1.10",
+    "jsdom": "29.1.1",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "typescript": "6.0.2",
+    "vite": "8.0.16",
+    "vite-plugin-dts": "4.5.4",
+    "vitest": "4.1.10"
+  }
+}
