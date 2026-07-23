@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
     branches: [main]
 
@@ -18,32 +19,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'yarn'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
       - name: Audit production dependencies
-        run: yarn audit --groups dependencies
+        run: npm audit --omit=dev
 
       - name: Audit dev dependencies (report only)
-        run: yarn audit --groups devDependencies || true
+        run: npm audit || true
 
       - name: Typecheck
-        run: yarn typecheck
+        run: npm run typecheck
 
-      - name: Run tests with coverage
-        run: yarn test:coverage
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          files: coverage/lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+      - name: Run tests
+        run: npm test
 
       - name: Build library
-        run: yarn build
+        run: npm run build
 
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
@@ -55,26 +49,40 @@ jobs:
     name: Publish to npm
     runs-on: ubuntu-latest
     needs: build
-    if: github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release:')
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
-          cache: 'yarn'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci
 
-      - name: Build
-        run: yarn build
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if [ "$TAG_VERSION" != "$PKG_VERSION" ]; then
+            echo "Tag v$TAG_VERSION does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
 
-      - name: Publish
+      - name: Ensure npm CLI supports trusted publishing (>=11.5.1)
+        run: npm install -g npm@latest
+
+      - name: Build library
+        run: npm run build
+
+      - name: Publish package (npm trusted publishing / OIDC)
         run: npm publish --access public
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
