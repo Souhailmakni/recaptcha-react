@@ -1,6 +1,6 @@
 {
   "name": "recaptcha-react",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Lightweight React reCAPTCHA v2 checkbox component with TypeScript, Vite library build, and controlled-value support",
   "author": "Souhail Makni <maknisouhail@gmail.com>",
   "license": "MIT",
