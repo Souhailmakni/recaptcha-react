@@ -7,22 +7,26 @@ import {
 import type { RecaptchaHandle, RecaptchaProps } from '../types'
 
 /**
- * Google reCAPTCHA v2 (checkbox) component for React.
+ * Google reCAPTCHA component for React, supporting both v2 (visible checkbox)
+ * and v3 (score-based). Defaults to v2.
  *
- * Loads the reCAPTCHA script once per page, renders the widget explicitly, and
- * is safe to mount multiple times. Forward a ref to reach the imperative API
- * (`reset`, `execute`, `getResponse`).
+ * Loads the reCAPTCHA script once per page and is safe to mount multiple times.
+ * Forward a ref to reach the imperative API (`reset`, `execute`, `getResponse`).
+ * On v3 there is no widget, so call `execute(action)` on the ref to get a token.
  */
 export const ReactRecaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(
   function ReactRecaptcha(props, ref) {
     const {
       sitekey,
+      version = 'v2',
+      action = 'submit',
       theme = 'light',
       size = 'normal',
       tabindex = 0,
       loadingTimeout = 30000,
       language = '',
       badge = 'bottomright',
+      hideBadge = false,
       isolated = false,
       onChange,
       onVerify,
@@ -35,24 +39,59 @@ export const ReactRecaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(
     const containerRef = useRef<HTMLDivElement | null>(null)
     const widgetIdRef = useRef<number | null>(null)
     const isLoadedRef = useRef(false)
+    const lastTokenRef = useRef('')
+    // Resolves a pending v2 execute() when the next verify fires.
+    const pendingExecuteRef = useRef<((token: string) => void) | null>(null)
+    // Resolves once grecaptcha is ready in v3 mode.
+    const v3ReadyRef = useRef<Promise<void>>(Promise.resolve())
 
-    // Latest callbacks, read through a ref so the render effect stays stable.
+    // Latest props/callbacks, read through refs so the effect stays stable.
     const cbRef = useRef({ onChange, onVerify, onExpire, onError, onWidgetId })
     cbRef.current = { onChange, onVerify, onExpire, onError, onWidgetId }
+    const cfgRef = useRef({ version, sitekey, action })
+    cfgRef.current = { version, sitekey, action }
 
     useImperativeHandle(
       ref,
       () => ({
         reset() {
-          if (widgetIdRef.current === null) return
-          window.grecaptcha?.reset(widgetIdRef.current)
+          lastTokenRef.current = ''
+          if (cfgRef.current.version === 'v2' && widgetIdRef.current !== null) {
+            window.grecaptcha?.reset(widgetIdRef.current)
+          }
           cbRef.current.onChange?.('')
         },
-        execute() {
-          if (widgetIdRef.current === null) return
+        async execute(actionArg?: string) {
+          const cfg = cfgRef.current
+          if (cfg.version === 'v3') {
+            await v3ReadyRef.current
+            const g = window.grecaptcha
+            if (!g) {
+              cbRef.current.onError?.()
+              throw new Error('reCAPTCHA v3 is not loaded')
+            }
+            try {
+              const token = await g.execute(cfg.sitekey, {
+                action: actionArg ?? cfg.action,
+              })
+              lastTokenRef.current = token
+              cbRef.current.onVerify?.(token)
+              cbRef.current.onChange?.(token)
+              return token
+            } catch (err) {
+              cbRef.current.onError?.()
+              throw err
+            }
+          }
+          // v2: trigger the challenge and resolve when the next verify fires.
+          if (widgetIdRef.current === null) return ''
           window.grecaptcha?.execute(widgetIdRef.current)
+          return new Promise<string>((resolve) => {
+            pendingExecuteRef.current = resolve
+          })
         },
         getResponse() {
+          if (cfgRef.current.version === 'v3') return lastTokenRef.current
           if (widgetIdRef.current === null) return ''
           return window.grecaptcha?.getResponse(widgetIdRef.current) ?? ''
         },
@@ -66,13 +105,75 @@ export const ReactRecaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(
       []
     )
 
-    // Re-render the widget whenever anything that changes the widget changes.
-    // grecaptcha has no update API, so we tear down and re-render.
     useEffect(() => {
-      let timeoutHandle: ReturnType<typeof setTimeout> | null = null
       let disposed = false
+      let timeoutHandle: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+        if (!isLoadedRef.current) cbRef.current.onError?.()
+      }, loadingTimeout)
 
-      // Unique callback names so multiple instances don't collide.
+      // ---- v3 (score-based) --------------------------------------------------
+      if (version === 'v3') {
+        let pollHandle: ReturnType<typeof setInterval> | null = null
+        let resolveReady: () => void = () => {}
+        v3ReadyRef.current = new Promise<void>((resolve) => {
+          resolveReady = resolve
+        })
+
+        let styleEl: HTMLStyleElement | null = null
+        if (hideBadge) {
+          styleEl = document.createElement('style')
+          styleEl.textContent = '.grecaptcha-badge { visibility: hidden; }'
+          document.head.appendChild(styleEl)
+        }
+
+        function onGrecaptchaReady() {
+          window.grecaptcha?.ready(() => {
+            if (disposed) return
+            isLoadedRef.current = true
+            resolveReady()
+            if (timeoutHandle) clearTimeout(timeoutHandle)
+          })
+        }
+
+        const scriptId = `google-recaptcha-v3-script-${sitekey}`
+        if (typeof window.grecaptcha?.ready === 'function') {
+          onGrecaptchaReady()
+        } else if (document.getElementById(scriptId)) {
+          pollHandle = setInterval(() => {
+            if (disposed) {
+              if (pollHandle) clearInterval(pollHandle)
+              return
+            }
+            if (typeof window.grecaptcha?.ready === 'function') {
+              if (pollHandle) clearInterval(pollHandle)
+              onGrecaptchaReady()
+            }
+          }, 100)
+        } else {
+          const lang = language ? `&hl=${language}` : ''
+          const scriptEl = document.createElement('script')
+          scriptEl.id = scriptId
+          scriptEl.src = `https://www.google.com/recaptcha/api.js?render=${sitekey}${lang}`
+          scriptEl.async = true
+          scriptEl.defer = true
+          scriptEl.onload = () => onGrecaptchaReady()
+          scriptEl.onerror = () => {
+            cbRef.current.onError?.()
+            if (timeoutHandle) clearTimeout(timeoutHandle)
+          }
+          document.head.appendChild(scriptEl)
+        }
+
+        return () => {
+          disposed = true
+          if (timeoutHandle) clearTimeout(timeoutHandle)
+          if (pollHandle) clearInterval(pollHandle)
+          if (styleEl) styleEl.remove()
+          isLoadedRef.current = false
+        }
+      }
+
+      // ---- v2 (visible checkbox) ---------------------------------------------
       const instanceId = Math.random().toString(36).slice(2)
       const onLoadCallbackName = `__recaptchaOnLoad_${instanceId}`
       const onVerifyCallbackName = `__recaptchaVerify_${instanceId}`
@@ -82,14 +183,21 @@ export const ReactRecaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(
       const win = window as unknown as Record<string, unknown>
 
       win[onVerifyCallbackName] = (token: string) => {
+        lastTokenRef.current = token
         cbRef.current.onVerify?.(token)
         cbRef.current.onChange?.(token)
+        if (pendingExecuteRef.current) {
+          pendingExecuteRef.current(token)
+          pendingExecuteRef.current = null
+        }
       }
       win[onExpireCallbackName] = () => {
+        lastTokenRef.current = ''
         cbRef.current.onExpire?.()
         cbRef.current.onChange?.('')
       }
       win[onErrorCallbackName] = () => {
+        lastTokenRef.current = ''
         cbRef.current.onError?.()
         cbRef.current.onChange?.('')
       }
@@ -159,10 +267,6 @@ export const ReactRecaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(
         document.head.appendChild(scriptEl)
       }
 
-      timeoutHandle = setTimeout(() => {
-        if (!isLoadedRef.current) cbRef.current.onError?.()
-      }, loadingTimeout)
-
       loadScript()
 
       return () => {
@@ -177,7 +281,7 @@ export const ReactRecaptcha = forwardRef<RecaptchaHandle, RecaptchaProps>(
         isLoadedRef.current = false
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sitekey, theme, size, tabindex, language, badge, isolated, loadingTimeout])
+    }, [version, sitekey, theme, size, tabindex, language, badge, isolated, hideBadge, loadingTimeout])
 
     return (
       <div

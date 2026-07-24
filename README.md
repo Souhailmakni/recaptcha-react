@@ -1,7 +1,8 @@
 # recaptcha-react
 
-> Lightweight, zero-dependency React component for **Google reCAPTCHA v2 (checkbox)**
+> Lightweight, zero-dependency React component for **Google reCAPTCHA v2 (checkbox) and v3 (score-based)**
 > with full TypeScript support, a Vite library build, and an optional `useRecaptcha` hook.
+> Switch between v2 and v3 with a single `version` prop.
 
 [![npm](https://img.shields.io/npm/v/recaptcha-react)](https://www.npmjs.com/package/recaptcha-react)
 [![license](https://img.shields.io/npm/l/recaptcha-react)](LICENSE)
@@ -12,7 +13,7 @@ Coverage (generated locally with `npm run test:coverage`, no external service):
 
 | Statements | Branches | Functions | Lines |
 |---|---|---|---|
-| ![Statements](https://img.shields.io/badge/statements-96.33%25-brightgreen.svg?style=flat) | ![Branches](https://img.shields.io/badge/branches-80.43%25-yellow.svg?style=flat) | ![Functions](https://img.shields.io/badge/functions-100%25-brightgreen.svg?style=flat) | ![Lines](https://img.shields.io/badge/lines-97.95%25-brightgreen.svg?style=flat) |
+| ![Statements](https://img.shields.io/badge/statements-96.84%25-brightgreen.svg?style=flat) | ![Branches](https://img.shields.io/badge/branches-80.21%25-yellow.svg?style=flat) | ![Functions](https://img.shields.io/badge/functions-96.96%25-brightgreen.svg?style=flat) | ![Lines](https://img.shields.io/badge/lines-98.82%25-brightgreen.svg?style=flat) |
 
 This is the React port of [`recaptcha-vue`](https://github.com/Souhailmakni/recaptcha-vue). Same behaviour, React idioms.
 
@@ -29,6 +30,7 @@ This is the React port of [`recaptcha-vue`](https://github.com/Souhailmakni/reca
 - [Props](#props)
 - [Callbacks](#callbacks)
 - [Imperative API](#imperative-api-via-ref)
+- [reCAPTCHA v3](#recaptcha-v3)
 - [`useRecaptcha` hook](#userecaptcha-hook)
 - [Controlled value](#controlled-value)
 - [Server-side verification](#server-side-verification)
@@ -40,6 +42,7 @@ This is the React port of [`recaptcha-vue`](https://github.com/Souhailmakni/reca
 
 ## Features
 
+- **v2 and v3** in one component: `version="v2"` (default) or `version="v3"`
 - **React 17 / 18 / 19** with hooks and `forwardRef`
 - **TypeScript**: full types for props and the imperative handle
 - **`useRecaptcha` hook**: reactive `token` & `isVerified` state
@@ -177,14 +180,17 @@ success path.
 
 | Prop | Type | Default | Description |
 |---|---|---|---|
-| `sitekey` | `string` | **required** | Your reCAPTCHA v2 site key |
-| `theme` | `'light' \| 'dark'` | `'light'` | Widget color scheme |
-| `size` | `'normal' \| 'compact'` | `'normal'` | Widget size |
-| `tabindex` | `number` | `0` | Tab index |
+| `sitekey` | `string` | **required** | Your reCAPTCHA site key |
+| `version` | `'v2' \| 'v3'` | `'v2'` | Which reCAPTCHA to use. See [reCAPTCHA v3](#recaptcha-v3) |
+| `action` | `string` | `'submit'` | **v3 only.** Default action when `execute()` is called with no argument |
+| `theme` | `'light' \| 'dark'` | `'light'` | **v2 only.** Widget color scheme |
+| `size` | `'normal' \| 'compact'` | `'normal'` | **v2 only.** Widget size |
+| `tabindex` | `number` | `0` | **v2 only.** Tab index |
 | `loadingTimeout` | `number` | `30000` | ms before `onError` fires if the script never loads |
 | `language` | `string` | `''` | BCP 47 language code, e.g. `'fr'`, `'ar'` |
-| `badge` | `'bottomright' \| 'bottomleft' \| 'inline'` | `'bottomright'` | Badge position (invisible size only) |
-| `isolated` | `boolean` | `false` | Isolate widget from others on the page |
+| `badge` | `'bottomright' \| 'bottomleft' \| 'inline'` | `'bottomright'` | **v2 only.** Badge position (invisible size only) |
+| `hideBadge` | `boolean` | `false` | **v3 only.** Hide the floating badge (see the legal note below) |
+| `isolated` | `boolean` | `false` | **v2 only.** Isolate widget from others on the page |
 | `value` | `string` | | Controlled token value (pair with `onChange`) |
 | `className` | `string` | | Extra class on the wrapper element |
 
@@ -213,12 +219,64 @@ const captcha = useRef<RecaptchaHandle>(null)
 
 <ReactRecaptcha ref={captcha} sitekey="..." />
 
-captcha.current?.reset()        // reset the widget
-captcha.current?.execute()      // programmatically trigger (compact / invisible)
-captcha.current?.getResponse()  // read the current token string
-captcha.current?.widgetId       // number | null
-captcha.current?.isLoaded       // boolean
+captcha.current?.reset()               // reset the widget (v2) / clear the token (v3)
+await captcha.current?.execute('login') // v3: run the challenge, resolve the token
+captcha.current?.getResponse()         // read the current token string
+captcha.current?.widgetId              // number | null (always null on v3)
+captcha.current?.isLoaded              // boolean
 ```
+
+`execute(action?)` returns a `Promise<string>`. On v3 it runs the challenge for
+the action and resolves with the token. On v2 it triggers the challenge and
+resolves when the next verify fires.
+
+---
+
+## reCAPTCHA v3
+
+reCAPTCHA v3 is score-based and renders **no widget**: there is nothing to click.
+You set `version="v3"` and get a token on demand by calling `execute(action)`,
+usually right before you submit. `onVerify` still fires with the token, so the
+`useRecaptcha` hook works exactly as it does for v2.
+
+```tsx
+import { useRef } from 'react'
+import { ReactRecaptcha, type RecaptchaHandle } from 'recaptcha-react'
+
+function Form() {
+  const captcha = useRef<RecaptchaHandle>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const token = await captcha.current!.execute('login')
+    await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 'g-recaptcha-response': token }),
+    })
+  }
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <ReactRecaptcha ref={captcha} sitekey="YOUR_V3_SITE_KEY" version="v3" />
+      <button type="submit">Log in</button>
+    </form>
+  )
+}
+```
+
+Notes specific to v3:
+
+- **Get a fresh token per submit.** v3 tokens are single-use and expire in about
+  2 minutes, so call `execute()` at submit time, not on mount.
+- **The badge and the law.** v3 shows a floating "protected by reCAPTCHA" badge.
+  You may hide it with `hideBadge`, but only if you then display the
+  [required legal text](https://developers.google.com/recaptcha/docs/faq#id-like-to-hide-the-recaptcha-badge-what-is-allowed)
+  somewhere on the page yourself.
+- **Server-side gives you a score.** `siteverify` returns `score` (0.0 to 1.0)
+  and `action`. Verify both server-side (see below).
+- **One version per page.** Rendering a v2 and a v3 instance on the same page is
+  not supported (the two share Google's single `grecaptcha` global). Pick one.
 
 ---
 
@@ -286,6 +344,15 @@ const verify = await fetch('https://www.google.com/recaptcha/api/siteverify', {
 }).then((r) => r.json())
 
 if (!verify.success) {
+  // reject the request
+}
+```
+
+For **v3**, `siteverify` also returns `score` (0.0 to 1.0) and `action`. Check
+both: reject low scores and confirm the action matches what you expected.
+
+```ts
+if (!verify.success || verify.score < 0.5 || verify.action !== 'login') {
   // reject the request
 }
 ```

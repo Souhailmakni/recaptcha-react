@@ -1,29 +1,48 @@
 export interface RecaptchaProps {
-  /** Your reCAPTCHA v2 site key from https://www.google.com/recaptcha/admin */
+  /** Your reCAPTCHA site key from https://www.google.com/recaptcha/admin */
   sitekey: string
 
-  /** Widget color scheme. Default: 'light' */
+  /**
+   * Which reCAPTCHA to use. Default: 'v2' (the visible checkbox).
+   * 'v3' is score-based and renders no widget; obtain a token by calling
+   * `execute(action)` on the ref.
+   */
+  version?: 'v2' | 'v3'
+
+  /**
+   * v3 only: the default action name used when `execute()` is called without
+   * an argument. Default: 'submit'.
+   */
+  action?: string
+
+  /** v2 only. Widget color scheme. Default: 'light' */
   theme?: 'light' | 'dark'
 
-  /** Widget size. Default: 'normal' */
+  /** v2 only. Widget size. Default: 'normal' */
   size?: 'normal' | 'compact'
 
-  /** Tab index of the widget. Default: 0 */
+  /** v2 only. Tab index of the widget. Default: 0 */
   tabindex?: number
 
-  /** Timeout in ms before firing onError if the widget never loads. Default: 30000 */
+  /** Timeout in ms before firing onError if the script never loads. Default: 30000 */
   loadingTimeout?: number
 
   /** Optional BCP 47 language code for the widget, e.g. 'fr', 'ar' */
   language?: string
 
   /**
-   * Position of the reCAPTCHA badge (only applies to invisible size).
+   * v2 only. Position of the reCAPTCHA badge (invisible size).
    * Default: 'bottomright'
    */
   badge?: 'bottomright' | 'bottomleft' | 'inline'
 
-  /** Whether to isolate this widget from others on the page */
+  /**
+   * v3 only. Hide the floating reCAPTCHA badge. If you hide it you must display
+   * the "protected by reCAPTCHA" legal text yourself (Google's terms require it).
+   */
+  hideBadge?: boolean
+
+  /** v2 only. Whether to isolate this widget from others on the page */
   isolated?: boolean
 
   /**
@@ -35,16 +54,19 @@ export interface RecaptchaProps {
   /** Called with the new token whenever it changes (verify sets it, expire/error clear it) */
   onChange?: (token: string) => void
 
-  /** Called when the user successfully completes the challenge; token is the response */
+  /**
+   * Called with the token: on v2 when the user completes the challenge, on v3
+   * whenever `execute()` resolves.
+   */
   onVerify?: (token: string) => void
 
-  /** Called when the response token expires */
+  /** v2 only. Called when the response token expires */
   onExpire?: () => void
 
-  /** Called when reCAPTCHA encounters an error (network, script load, etc.) */
+  /** Called when reCAPTCHA encounters an error (network, script load, execute failure) */
   onError?: () => void
 
-  /** Called with the widget ID once the widget is rendered */
+  /** v2 only. Called with the widget ID once the widget is rendered */
   onWidgetId?: (id: number) => void
 
   /** Extra class name applied to the wrapper element */
@@ -53,15 +75,22 @@ export interface RecaptchaProps {
 
 /** Imperative handle exposed via ref */
 export interface RecaptchaHandle {
-  /** Reset the widget so the user can solve it again */
+  /**
+   * v2: reset the widget so the user can solve it again.
+   * v3: clear the last token held by the component.
+   */
   reset(): void
-  /** Programmatically execute the challenge (invisible/size flows) */
-  execute(): void
-  /** Read the current response token straight from grecaptcha */
+  /**
+   * Obtain a token. On v3, runs the challenge for `action` (or the `action`
+   * prop, defaulting to 'submit') and resolves with the token. On v2, triggers
+   * the challenge and resolves when the next verify fires.
+   */
+  execute(action?: string): Promise<string>
+  /** Read the current token (last resolved token on v3) */
   getResponse(): string
-  /** The rendered widget id, or null before render */
+  /** v2: the rendered widget id, or null. Always null on v3. */
   readonly widgetId: number | null
-  /** True once the widget has rendered */
+  /** True once the widget has rendered (v2) or grecaptcha is ready (v3) */
   readonly isLoaded: boolean
 }
 
@@ -69,8 +98,13 @@ export interface RecaptchaHandle {
 export interface Grecaptcha {
   render(container: HTMLElement, params: Record<string, unknown>): number
   reset(widgetId?: number): void
-  execute(widgetId?: number): void
   getResponse(widgetId?: number): string
+  /** v3: run the challenge for an action and resolve with a token */
+  execute(siteKey: string, options: { action: string }): Promise<string>
+  /** v2 invisible: trigger the challenge for a widget */
+  execute(widgetId?: number): void
+  /** v3: run the callback once grecaptcha is ready */
+  ready(callback: () => void): void
 }
 
 declare global {

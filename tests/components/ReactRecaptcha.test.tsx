@@ -167,6 +167,31 @@ describe('ReactRecaptcha', () => {
     expect(ref.current!.getResponse()).toBe('') // cleared after reset
   })
 
+  it('stops polling if unmounted before grecaptcha loads (v2)', () => {
+    vi.useFakeTimers()
+    const existing = document.createElement('script')
+    existing.id = 'google-recaptcha-script'
+    document.head.appendChild(existing)
+
+    const { unmount } = render(<ReactRecaptcha sitekey="test-key" />)
+    unmount() // dispose while waitForGrecaptcha is polling
+    installGrecaptchaMock()
+    expect(() => vi.advanceTimersByTime(300)).not.toThrow()
+    vi.useRealTimers()
+  })
+
+  it('execute() resolves with the token when the next verify fires', async () => {
+    installGrecaptchaMock()
+    const ref = createRef<RecaptchaHandle>()
+    render(<ReactRecaptcha ref={ref} sitekey="test-key" />)
+    await waitFor(() => expect(ref.current?.isLoaded).toBe(true))
+
+    const pending = ref.current!.execute()
+    const cb = (window as any).__lastParams.callback
+    ;(window as any)[cb]('verified-token')
+    await expect(pending).resolves.toBe('verified-token')
+  })
+
   it('imperative methods are no-ops before the widget renders', () => {
     const ref = createRef<RecaptchaHandle>()
     render(<ReactRecaptcha ref={ref} sitekey="test-key" />)
